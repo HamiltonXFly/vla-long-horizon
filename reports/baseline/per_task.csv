@@ -1,0 +1,11 @@
+run,task_id,task,n_needed_subgoals,n,success_rate,success_ci_lo,success_ci_hi,p_none,p_partial,p_complete,p_success_given_first,n_reached_first,median_success_step,n_perturbed
+baseline_seed1000,0,put both the alphabet soup and the tomato sauce in the basket,2,50,0.88,0.7619492111337642,0.9438247628937535,0.06,0.06,0.88,0.9361702127659575,47,255.0,0
+baseline_seed1000,1,put both the cream cheese box and the butter in the basket,2,50,1.0,0.9286499658256813,1.0,0.0,0.0,1.0,1.0,50,244.5,0
+baseline_seed1000,2,turn on the stove and put the moka pot on it,2,50,0.92,0.8116149745493629,0.9684509967442093,0.0,0.08,0.92,0.92,50,237.5,0
+baseline_seed1000,3,put the black bowl in the bottom drawer of the cabinet and close it,2,50,0.96,0.8653966212204534,0.9889613473391734,0.0,0.04,0.96,0.96,50,216.5,0
+baseline_seed1000,4,put the white mug on the left plate and put the yellow and white mug on the right plate,2,50,0.98,0.8950431352816304,0.9964608319110235,0.0,0.02,0.98,0.98,50,223.0,0
+baseline_seed1000,5,pick up the book and place it in the back compartment of the caddy,1,50,1.0,0.9286499658256813,1.0,0.0,0.0,1.0,1.0,50,174.0,0
+baseline_seed1000,6,put the white mug on the plate and put the chocolate pudding to the right of the plate,2,50,0.94,0.8378265662912299,0.9793854036353695,0.0,0.06,0.94,0.94,50,213.0,0
+baseline_seed1000,7,put both the alphabet soup and the cream cheese box in the basket,2,50,0.98,0.8950431352816304,0.9964608319110235,0.0,0.02,0.98,0.98,50,247.0,0
+baseline_seed1000,8,put both moka pots on the stove,2,50,0.74,0.6044657801100008,0.8412862034863262,0.0,0.26,0.74,0.74,50,385.0,0
+baseline_seed1000,9,put the yellow and white mug in the microwave and close it,2,50,1.0,0.9286499658256813,1.0,0.0,0.0,1.0,1.0,50,254.0,0

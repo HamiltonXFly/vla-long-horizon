@@ -1,0 +1,15 @@
+run,task_id,init_state_id,kind
+perturb_auto_mag0.06_delay5_seed1000,2,4,object_shift_xy
+perturb_auto_mag0.06_delay5_seed1000,2,19,object_shift_xy
+perturb_auto_mag0.06_delay5_seed1000,2,21,object_shift_xy
+perturb_auto_mag0.06_delay5_seed1000,6,4,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,0,20,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,0,30,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,0,49,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,1,23,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,2,0,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,2,29,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,2,34,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,2,40,object_shift_xy
+perturb_auto_mag0.10_delay5_seed1000,2,43,object_shift_xy
+perturb_auto_mag0.03_delay5_seed1000,9,39,joint_noise

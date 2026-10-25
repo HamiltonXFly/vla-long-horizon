@@ -1,0 +1,2 @@
+run,mode,mag,n,success_rate,success_ci_lo,success_ci_hi,multi_stage_n,p_success_given_first_subgoal,p_sgf_ci_lo,p_sgf_ci_hi,n_perturbed,success_after_perturbation,sap_ci_lo,sap_ci_hi
+baseline_seed1000,none,0.0,500,0.94,0.9156384216937552,0.9576519139990498,450,0.9395973154362416,0.9135438877316063,0.9581591671772575,0,,,

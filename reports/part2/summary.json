@@ -1,0 +1,16 @@
+{
+  "K": 10,
+  "windows": [
+    20,
+    40,
+    80
+  ],
+  "n_train_episodes": 333,
+  "n_calib_episodes": 137,
+  "n_train_samples": 40242,
+  "n_unstable_excluded": 14,
+  "mlp_robot_R2": 0.9795628190040588,
+  "mlp_objects_R2": 0.9810611605644226,
+  "linear_robot_R2": 0.8342043161392212,
+  "linear_objects_R2": 0.5723503232002258
+}
