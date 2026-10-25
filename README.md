@@ -5,6 +5,11 @@ tasks in simulation (**2,500+ episodes** on one RTX 5080). π0.5 is a
 *vision-language-action (VLA)* model: it looks at camera images, reads an
 instruction such as *"put both moka pots on the stove"*, and moves the arm.
 
+<p align="center">
+  <img src="docs/t8_success_vs_failure.gif" width="560" alt="Left: the robot puts both moka pots on the stove. Right: it places the first pot, then stays next to the second pot without grasping it until time runs out.">
+</p>
+<p align="center"><sub>Same task, same model, 2× speed. Right: the first pot is placed, then the arm hovers next to the second pot until time runs out.</sub></p>
+
 ## In 30 seconds
 
 | | What I found |
