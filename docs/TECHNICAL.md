@@ -13,7 +13,7 @@ lightweight world model can see failures coming.
 
 ## Motivation
 
-On LIBERO, released VLA checkpoints are close to saturation (π0.5 reports ~96%
+On LIBERO, released VLA checkpoints are close to saturation (LeRobot reports 96% for π0.5
 on LIBERO-10). An aggregate success rate does not say *where* in a multi-step task
 a policy fails, or whether it can *recover* after something goes wrong mid-task.
 Both matter for long-horizon action generation.
@@ -90,7 +90,7 @@ python -m pytest tests -q
 ### Baseline: where do failures happen?
 
 π0.5 completes **470/500 (94.0%, 95% CI 91.6–95.8)** of LIBERO-10 episodes,
-consistent with the reported ~96%. Stage-level logging shows that failures are
+consistent with the 96% LeRobot reports (10 episodes per task). Stage-level logging shows that failures are
 almost never at the start:
 
 * **27 of 30 failures happen after at least one sub-goal was completed**; only 3
@@ -208,7 +208,7 @@ with "task became harder".
 ## Related reading
 
 * Black et al., π0 / π0.5 (Physical Intelligence)
-* Liu et al., LIBERO (2023); Fei et al., LIBERO-plus robustness analysis (2025)
-* Hafner et al., DreamerV3; Zhu et al., Unified World Models (2025)
+* Liu et al., LIBERO (2023), arXiv:2306.03310; *In-depth Robustness Analysis of Vision-Language-Action Models* (LIBERO-plus), arXiv:2510.13626
+* Hafner et al., DreamerV3, arXiv:2301.04104; Zhu et al., Unified World Models, arXiv:2504.02792
 * Dong et al., *Learning to Model the World: A Survey of World Models in AI* (2026, preprint)
 * M. Reuss, *State of VLA Research at ICLR 2026* (blog, 2025)

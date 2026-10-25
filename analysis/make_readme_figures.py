@@ -107,7 +107,7 @@ def fig_early_warning():
     d = pd.read_csv(ROOT / "reports/part2/auroc.csv")
     d = d[d.decision_steps_after == 40]
     groups = [("object_shift_xy", "Object moved\n(7 tasks)"), ("joint_noise", "Robot arm bumped\n(2 tasks)")]
-    preds = [("WM residual (MLP)", "World model (ours)", BLUE),
+    preds = [("WM residual (MLP)", "World model", BLUE),
              ("Stall heuristic", "Rule: \"robot stopped moving\"", ORANGE),
              ("Magnitude (sim oracle)", "Knowing how big the disturbance was*", GRAY)]
     fig, ax = plt.subplots(figsize=(7.2, 3.8), dpi=170)

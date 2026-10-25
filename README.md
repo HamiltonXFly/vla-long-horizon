@@ -1,7 +1,7 @@
 # When does a robot fail a multi-step task, and can we see it coming?
 
 I tested **π0.5**, an open robot foundation model, on 10 multi-step household
-tasks in simulation (**2,500+ episodes** on one RTX 5080). π0.5 is a
+tasks in simulation (**2,500+ episodes**). π0.5 is a
 *vision-language-action (VLA)* model: it looks at camera images, reads an
 instruction such as *"put both moka pots on the stove"*, and moves the arm.
 
@@ -16,26 +16,25 @@ instruction such as *"put both moka pots on the stove"*, and moves the arm.
 |---|---|
 | **1** | **9 out of 10 failures happen after the robot has already finished step 1.** Starting a task is easy; continuing it is where things go wrong. |
 | **2** | **If the object needed for step 2 is moved by 10 cm, the robot finishes only 63% of tasks** (93% without the disturbance). |
-| **3** | **A small world model, trained only on successful runs, can tell 2 seconds after a disturbance whether the robot will fail**, and it does this better than a simple "the robot stopped moving" rule. |
+| **3** | **A small world model, trained only on successful runs, gives an early warning 2 seconds after a disturbance.** It predicts failure better than a simple "the robot stopped moving" rule, though not perfectly. |
 
 ## The idea
 
 ```mermaid
 flowchart LR
-    I["📷 Camera + instruction"] --> V["VLA policy (π0.5)<br/><i>decides what to do</i>"]
-    V -- actions --> R["🤖 Robot in the world"]
+    I["Camera + instruction"] --> V["VLA policy (π0.5)<br/><i>decides what to do</i>"]
+    V -- actions --> R["Robot in the world"]
     V -- same actions --> W["World model<br/><i>predicts what should happen</i>"]
     R -- "what actually happened" --> C{"Compare"}
     W -- "prediction" --> C
-    C -- "large mismatch" --> A["⚠️ Early warning"]
+    C -- "large mismatch" --> A["Early warning"]
 ```
 
 A VLA only learned **what to do**, by copying human demonstrations. It never
 learned **what will happen** after it acts, so once something goes off-script it
 has no notion that it is failing. A *world model* adds exactly that: it predicts
 the next state from the current state and the planned actions. When reality
-stops matching the prediction, that mismatch is a warning signal. This is the
-same predict-observe-compare idea as a Kalman-filter residual.
+stops matching the prediction, that mismatch is a warning signal.
 
 ## Results
 
@@ -59,9 +58,7 @@ closes a drawer or a microwave door drops success from 98% to 57–67%.
 
 ![Early warning](docs/fig3_early_warning.png)
 
-The world model sees trouble coming sooner than a stall rule. It also scores
-higher than simply knowing how big the disturbance was, which a real robot
-would not know anyway.
+The world model sees trouble coming sooner than a stall rule.
 It is not perfect: on the hardest task (two moka pots) it is only slightly
 better than chance, which is the obvious next thing to improve.
 
@@ -71,8 +68,9 @@ better than chance, which is the obvious next thing to improve.
   saturated; sub-goal-level evaluation shows *where* a policy breaks.
 * **Robustness after step 1 is the long-horizon problem.** Factory and household
   tasks are chains of steps, and a small slip early on compounds later.
-* **A monitor needs no retraining of the robot model.** It can sit next to any
-  VLA as a pluggable safety layer and trigger a retry, a re-plan, or a stop.
+* **A monitor needs no retraining of the robot model.** It could sit next to any
+  VLA as a pluggable safety layer and trigger a retry, a re-plan, or a stop
+  (not tested yet, see below).
 
 ## Honest limits
 
@@ -99,8 +97,7 @@ checks, how to reproduce): [docs/TECHNICAL.md](docs/TECHNICAL.md)
 [LeRobot](https://github.com/huggingface/lerobot)), `vlalh/world_model.py`
 (world model), `analysis/` (all figures and statistics).
 
-**Author:** Haoxiang Gao, M.Sc. AI in Society, Technical University of Munich ·
-B.Eng. Automation · co-author of *When Humans and LLMs Disagree* (EMNLP 2026, Oral)
+**Author:** Haoxiang Gao
 
 Built on [LeRobot](https://github.com/huggingface/lerobot),
 [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) and the
