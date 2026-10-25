@@ -1,7 +1,7 @@
 # When does a robot fail a multi-step task, and can we see it coming?
 
 I tested **π0.5**, an open robot foundation model, on 10 multi-step household
-tasks in simulation (**2,500+ episodes**). π0.5 is a
+tasks in simulation. π0.5 is a
 *vision-language-action (VLA)* model: it looks at camera images, reads an
 instruction such as *"put both moka pots on the stove"*, and moves the arm.
 
@@ -90,15 +90,9 @@ better than chance, which is the obvious next thing to improve.
 
 ---
 
-**Technical report** (method, all numbers with confidence intervals, sanity
-checks, how to reproduce): [docs/TECHNICAL.md](docs/TECHNICAL.md)
-
-**Code:** `vlalh/instrument.py` (step-level logging and perturbations on top of
-[LeRobot](https://github.com/huggingface/lerobot)), `vlalh/world_model.py`
-(world model), `analysis/` (all figures and statistics).
-
-**Author:** Haoxiang Gao
+**Details:** [technical report](docs/TECHNICAL.md): method, all numbers with
+confidence intervals, sanity checks, how to reproduce.
 
 Built on [LeRobot](https://github.com/huggingface/lerobot),
 [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) and the
-`lerobot/pi05_libero_finetuned` checkpoint.
+`lerobot/pi05_libero_finetuned` checkpoint. Author: Haoxiang Gao.

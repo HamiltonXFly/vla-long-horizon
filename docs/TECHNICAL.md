@@ -1,6 +1,6 @@
 # Technical report: stage-level failure analysis and world-model failure prediction for π0.5 on LIBERO-10
 
-← [Overview](../README.md) · Haoxiang Gao · October 2026
+← [Overview](../README.md)
 
 ## Abstract
 
@@ -29,10 +29,9 @@ one seed in simulation, using privileged state.
 
 | Item | Value |
 |---|---|
-| Policy | `lerobot/pi05_libero_finetuned` (π0.5, fine-tuned on LIBERO by LeRobot), `n_action_steps=10`, no `torch.compile` |
+| Policy | `lerobot/pi05_libero_finetuned` (π0.5 fine-tuned on LIBERO), executing 10 actions per predicted chunk |
 | Benchmark | LIBERO-10 (Long), 10 tasks, LeRobot's fixed initial states, max 520 control steps at 20 Hz |
-| Episodes | 50 per task and condition, seed 1000; 4 conditions × 500 + checks ≈ 2,550 episodes |
-| Compute | one RTX 5080 (16 GB), ≈ 5.8 s per episode, ≈ 4 GPU hours in total |
+| Episodes | 50 per task and condition, seed 1000 |
 | Success | LIBERO's own check: all goal predicates true at the same step |
 
 **Tasks and sub-goals** (from the BDDL goal of each task; "at reset" = already
@@ -211,7 +210,7 @@ AUROC at **τ = 2 s after the perturbation**:
 ## 7. Next steps
 
 1. Visual world model: predict in image-feature space (e.g. DINO or SigLIP
-   embeddings, as in DINO-WM) so the monitor needs no privileged state.
+   embeddings) so the monitor needs no privileged state.
 2. Close the loop: on a warning, re-issue the current sub-instruction or
    re-plan, and measure recovered success against a random-trigger control.
 3. Harder long-horizon settings: more seeds, LIBERO-plus perturbations, longer
@@ -220,9 +219,9 @@ AUROC at **τ = 2 s after the perturbation**:
 ## 8. Reproduce
 
 ```bash
-python scripts/inspect_tasks.py --suite libero_10           # sub-goals and their value at reset
-bash scripts/run_baseline.sh 1000 50                        # ~50 min on an RTX 5080
-bash scripts/run_perturb_sweep.sh 1000 50                   # ~2.5 h (3 magnitudes)
+python scripts/inspect_tasks.py --suite libero_10
+bash scripts/run_baseline.sh 1000 50
+bash scripts/run_perturb_sweep.sh 1000 50
 
 python analysis/analyze_stages.py outputs/baseline_seed1000 --out reports/baseline
 python analysis/failure_modes.py  outputs/baseline_seed1000 --out reports/baseline
@@ -231,23 +230,14 @@ python analysis/analyze_perturbation.py --baseline outputs/baseline_seed1000 \
     --out reports/perturbation
 python analysis/part2_failure_monitor.py --baseline outputs/baseline_seed1000 \
     --perturbed outputs/perturb_auto_mag0.0{3,6}_delay5_seed1000 outputs/perturb_auto_mag0.10_delay5_seed1000 \
-    --out reports/part2                                     # CPU, ~1 min
+    --out reports/part2
 python analysis/make_readme_figures.py
-python -m pytest tests -q                                   # offline tests, no simulator
+python -m pytest tests -q
 ```
-
-Perturbations are configured with environment variables read by
-`vlalh/instrument.py`: `VLA_PERTURB_MODE` (`none` / `object` / `robot` / `auto`),
-`VLA_PERTURB_MAG`, `VLA_PERTURB_DELAY`, `VLA_PERTURB_SEED`. Per-episode logs:
-`outputs/<run>/summary.jsonl` and `outputs/<run>/episodes/taskXX_initYYY.npz`.
 
 ## References
 
 * K. Black et al., π0: A Vision-Language-Action Flow Model for General Robot Control (2024); Physical Intelligence, π0.5 (2025)
 * B. Liu et al., LIBERO: Benchmarking Knowledge Transfer for Lifelong Robot Learning, arXiv:2306.03310
 * *In-depth Robustness Analysis of Vision-Language-Action Models* (LIBERO-plus), arXiv:2510.13626
-* D. Hafner et al., Mastering Diverse Domains through World Models (DreamerV3), arXiv:2301.04104
-* C. Zhu et al., Unified World Models, arXiv:2504.02792
-* J. Dong et al., Learning to Model the World: A Survey of World Models in Artificial Intelligence, Preprints 2026, doi:10.20944/preprints202603.0739.v1
-* M. Reuss, State of VLA Research at ICLR 2026 (blog, 2025)
 * LeRobot: https://github.com/huggingface/lerobot
