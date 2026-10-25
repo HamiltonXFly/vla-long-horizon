@@ -156,9 +156,13 @@ def main() -> None:
     pert = [e for e in pert if not unstable(e)]
     res_cache = {id(e): (mlp.residual_series(e), lin.residual_series(e)) for e in pert}
 
-    # unperturbed reference: same decision rule, anchored at first sub-goal + 5 steps
+    # unperturbed reference: same decision rule, anchored at first sub-goal + 5 steps.
+    # Only init states 35-49: successes with id < 35 were training data (their residual
+    # would be optimistically low and inflate the AUROC).
     base_eval = []
     for e in base:
+        if e.init_state_id < 35:
+            continue
         t1 = first_subgoal_step(e)
         if t1 is not None and e.summary["n_steps"] > t1 + 5:
             base_eval.append((e, t1 + 5))

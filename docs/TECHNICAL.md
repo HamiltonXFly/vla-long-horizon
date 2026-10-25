@@ -1,214 +1,253 @@
-# Technical report
+# Technical report: stage-level failure analysis and world-model failure prediction for π0.5 on LIBERO-10
 
-← [Back to the overview](../README.md)
+← [Overview](../README.md) · Haoxiang Gao · October 2026
 
-## Where do VLAs fail on long-horizon tasks?
+## Abstract
 
-Stage-level evaluation of a Vision-Language-Action policy (π0.5) on LIBERO-10,
-with mid-episode perturbations, as a starting point for asking whether a
-lightweight world model can see failures coming.
+Released VLA checkpoints are close to saturation on LIBERO (LeRobot reports
+96% for π0.5 on LIBERO-10), so an aggregate success rate says little about
+long-horizon robustness. I instrument the LIBERO environment to log every
+BDDL sub-goal at every step, evaluate π0.5 on all 10 LIBERO-10 tasks
+(50 episodes each), and add mid-episode perturbations right after the first
+sub-goal is completed. **27 of 30 baseline failures occur after the first
+sub-goal**, and success after a 10 cm shift of the next target object falls
+from 92.8% to 63.1%. A small action-conditioned dynamics model, trained only on
+successful unperturbed episodes, predicts the outcome of perturbed episodes
+2 s after the perturbation with AUROC 0.74 (object shift) and 0.88 (arm
+perturbation), above a stall heuristic (0.62 / 0.80). All results are from
+one seed in simulation, using privileged state.
 
-> **Status:** work in progress. All numbers below come from actual runs; nothing
-> is extrapolated. Parts 1 and 2 are done; Part 3 (acting on the monitor) is next.
+## 1. Research questions
 
-## Motivation
-
-On LIBERO, released VLA checkpoints are close to saturation (LeRobot reports 96% for π0.5
-on LIBERO-10). An aggregate success rate does not say *where* in a multi-step task
-a policy fails, or whether it can *recover* after something goes wrong mid-task.
-Both matter for long-horizon action generation.
-
-This repo therefore evaluates at the level of **sub-goals**: every LIBERO task
-goal is a conjunction of BDDL predicates (e.g. `(In alphabet_soup basket)` ∧
-`(In tomato_sauce basket)`), and we log the truth value of each predicate at
-every simulation step.
-
-## What is measured
-
-| Part | Question | Status |
+| | Question | Section |
 |---|---|---|
-| 1. Stage-level baseline | Per-sub-goal completion, time to each sub-goal, P(success \| first sub-goal reached) | done (1 seed) |
-| 1b. Mid-episode perturbation | After the first sub-goal is done, shift the next target object (or perturb the arm). How often does the policy still finish? | done (1 seed, 3 magnitudes) |
-| 2. World-model failure monitor | Train a small action-conditioned dynamics model on successful rollouts; does its prediction residual flag failures early? (AUROC vs decision time) | done (state-based) |
-| 3. Residual-triggered retry | Re-issue the current sub-instruction when the monitor fires | stretch |
+| RQ1 | Where in a multi-step task does π0.5 fail? | [4.1](#41-rq1-where-do-failures-happen) |
+| RQ2 | How well does it recover from a disturbance after the first sub-goal? | [4.2](#42-rq2-recovery-from-a-mid-episode-perturbation) |
+| RQ3 | Can a world model's prediction error tell early whether it will recover? | [4.3](#43-rq3-early-failure-prediction-with-a-world-model) |
 
-## Setup
+## 2. Setup
 
-* Policy: `lerobot/pi05_libero_finetuned` via [LeRobot](https://github.com/huggingface/lerobot)
-* Benchmark: LIBERO-10 (Long), 10 tasks, LeRobot's fixed init states
-* Hardware: single RTX 5080 (16 GB), Ubuntu, `MUJOCO_GL=egl`
-* `--policy.n_action_steps=10`, `--policy.compile_model=false`, `--eval.batch_size=1`
-
-## How it works
-
-`vlalh/instrument.py` monkey-patches LeRobot's `LiberoEnv` (reset/step/close)
-so the stock `lerobot-eval` loop is used unchanged. Per episode it writes
-
-* `summary.jsonl` – one line per episode: success, first step each predicate
-  became true, whether/when/how it was perturbed
-* `episodes/taskXX_initYYY.npz` – per-step predicates, end-effector pose,
-  gripper, joint positions, goal-object poses, actions
-
-Perturbation (env vars):
-
-| Variable | Meaning |
+| Item | Value |
 |---|---|
-| `VLA_PERTURB_MODE` | `none`, `object` (shift next target object in xy), `robot` (joint noise), `auto` (object if the next sub-goal has a movable object, else robot) |
-| `VLA_PERTURB_MAG` | metres (object) or radians std (robot) |
-| `VLA_PERTURB_DELAY` | steps after the first sub-goal completes |
-| `VLA_PERTURB_SEED` | seed for the perturbation direction |
+| Policy | `lerobot/pi05_libero_finetuned` (π0.5, fine-tuned on LIBERO by LeRobot), `n_action_steps=10`, no `torch.compile` |
+| Benchmark | LIBERO-10 (Long), 10 tasks, LeRobot's fixed initial states, max 520 control steps at 20 Hz |
+| Episodes | 50 per task and condition, seed 1000; 4 conditions × 500 + checks ≈ 2,550 episodes |
+| Compute | one RTX 5080 (16 GB), ≈ 5.8 s per episode, ≈ 4 GPU hours in total |
+| Success | LIBERO's own check: all goal predicates true at the same step |
 
-## Reproduce
+**Tasks and sub-goals** (from the BDDL goal of each task; "at reset" = already
+true at the start and therefore not counted as a completed sub-goal):
 
-```bash
-# sanity check: goal predicates of every task and their value at reset
-python scripts/inspect_tasks.py --suite libero_10
+| ID | Instruction | Sub-goals |
+|---|---|---|
+| T0 | put both the alphabet soup and the tomato sauce in the basket | soup in basket · sauce in basket |
+| T1 | put both the cream cheese box and the butter in the basket | cheese in basket · butter in basket |
+| T2 | turn on the stove and put the moka pot on it | stove on · pot on stove |
+| T3 | put the black bowl in the bottom drawer of the cabinet and close it | bowl in drawer · drawer closed |
+| T4 | put the white mug on the left plate and the yellow-white mug on the right plate | mug 1 on plate 1 · mug 2 on plate 2 |
+| T5 | pick up the book and place it in the back compartment of the caddy | book in caddy (single sub-goal) |
+| T6 | put the white mug on the plate and the chocolate pudding to the right of the plate | mug on plate · pudding right of plate |
+| T7 | put both the alphabet soup and the cream cheese box in the basket | soup in basket · cheese in basket |
+| T8 | put both moka pots on the stove | pot 1 on stove · pot 2 on stove · (stove on: true at reset) |
+| T9 | put the yellow and white mug in the microwave and close it | mug in microwave · door closed |
 
-# baseline (10 tasks x 50 episodes, ~1 h on an RTX 5080)
-bash scripts/run_baseline.sh 1000 50
+## 3. Method
 
-# perturbation sweep (object shift 3 / 6 / 10 cm, 5 steps after first sub-goal)
-bash scripts/run_perturb_sweep.sh 1000 50
+### 3.1 Sub-goal logging
 
-# analysis
-python analysis/analyze_stages.py outputs/baseline_seed1000 --out reports/baseline
-python analysis/analyze_perturbation.py --baseline outputs/baseline_seed1000 \
-    --runs outputs/perturb_auto_mag0.0{3,6}_delay5_seed1000 outputs/perturb_auto_mag0.10_delay5_seed1000 \
-    --out reports/perturbation
+`vlalh/instrument.py` wraps LeRobot's `LiberoEnv` (`reset`, `step`, `close`)
+so that the unmodified `lerobot-eval` loop can be used. At every step it
+evaluates each goal predicate with LIBERO's own `_eval_predicate` and records
+the end-effector pose, gripper and joint positions, the poses of all movable
+goal objects, and the executed action. *First sub-goal* = the first step at
+which a predicate that was false at reset becomes true.
 
-# Part 2: world-model failure monitor (CPU, ~1 min; needs scikit-learn)
-python analysis/part2_failure_monitor.py --baseline outputs/baseline_seed1000 \
-    --perturbed outputs/perturb_auto_mag0.0{3,6}_delay5_seed1000 outputs/perturb_auto_mag0.10_delay5_seed1000 \
-    --out reports/part2
+### 3.2 Mid-episode perturbation
 
-# offline tests (no simulator needed)
-python -m pytest tests -q
-```
+Five steps after the first sub-goal is completed (and only if the task is not
+yet finished), one perturbation is applied directly in the MuJoCo state:
 
-## Results (seed 1000, 50 episodes per task, 500 per condition)
+* **Object shift** (tasks whose next sub-goal involves a movable object:
+  T0 T1 T2 T4 T6 T7 T8): the object is moved horizontally by 3, 6 or 10 cm in a
+  uniformly random direction (seeded per episode); height and orientation are
+  kept and its velocity is set to zero.
+* **Arm joint noise** (tasks whose next sub-goal is closing a door or drawer:
+  T3 T9): Gaussian noise with std 0.03, 0.06 or 0.10 rad is added to all 7 arm
+  joints; joint velocities are set to zero.
 
-### Baseline: where do failures happen?
+The policy keeps running unchanged; it sees the new state from the next
+observation onwards. T5 has a single sub-goal and is never perturbed.
 
-π0.5 completes **470/500 (94.0%, 95% CI 91.6–95.8)** of LIBERO-10 episodes,
-consistent with the 96% LeRobot reports (10 episodes per task). Stage-level logging shows that failures are
-almost never at the start:
+### 3.3 World model and failure score
 
-* **27 of 30 failures happen after at least one sub-goal was completed**; only 3
-  (all T0) never reach a sub-goal.
-* Failures concentrate in **T8 "put both moka pots on the stove" (37/50)**, and
-  all 13 T8 failures place the first pot (≈ step 175–240) and then fail on the
-  second, with ~300 steps left. Successful T8 episodes need ~200 steps for the
-  second pot, so these are not simply time-outs.
-* In 4 failures the policy **undoes a sub-goal it had already completed**
-  (e.g. knocks the first moka pot off the stove while placing the second).
+*Model.* A 2×256 MLP predicts Δs = s<sub>t+10</sub> − s<sub>t</sub> from the
+state s<sub>t</sub>, the next 10 executed actions and a task one-hot
+(`vlalh/world_model.py`). s = end-effector position (3), gripper (2), arm joints
+(7), positions of up to four goal objects (12, zero-padded and masked).
 
-![stage outcome](../reports/baseline/fig_stage_outcome.png)
+*Training data.* Only **successful, unperturbed** baseline episodes with
+init-state id 0–34 (333 episodes, 40k samples). Residual scales are calibrated
+on the remaining successful baseline episodes (id 35–49). No perturbed episode
+is used for training or calibration.
 
-Preliminary failure-mode labels from the logged trajectories (heuristic,
-being checked against videos): about half of the failures are *stalls* (the
-end-effector moves < 15 cm over the last 150 steps without further grasp
-attempts), the rest are carried-but-not-placed objects, repeated grasp attempts,
-and regressions.
+*Score.* Normalised squared prediction error, averaged over all predictions
+that are complete by the decision time τ = p + W (p = perturbation step,
+W = 20, 40, 80 steps = 1, 2, 4 s). This is the predict-observe-compare logic of
+residual-based anomaly detection (as with the innovation of a Kalman filter).
 
-### Mid-episode perturbation: does the policy recover?
+*Comparisons.* (a) the same score with a linear (ridge) dynamics model,
+(b) a stall heuristic: −(end-effector path length between p and τ),
+(c) the perturbation magnitude, an oracle that exists only in simulation.
 
-Recovery = P(success | perturbed), compared with the unperturbed
-P(success | first sub-goal reached) on the same tasks. 14 of ~1,340 perturbed
-episodes were excluded because the teleported object penetrated another body and
-the physics became unstable (> 0.15 m jump in one step; see
-`../reports/perturbation/excluded_unstable.csv`).
+*Metric.* AUROC for "episode ends in failure", 95% bootstrap CI (1,000
+resamples). Episodes that already ended before τ are excluded.
 
-| Perturbation | Tasks | 0 (baseline) | small | medium | large |
+### 3.4 Design choices
+
+| Choice | Reason |
+|---|---|
+| π0.5 on LIBERO-10 | Strong, openly available VLA with a LeRobot checkpoint; LIBERO-10 is the longest LIBERO suite |
+| Perturb right after the first sub-goal | Isolates the long-horizon question: can the policy continue a task it has already started? |
+| Train the world model on successes only | The model should describe *normal* progress; any deviation is then a candidate warning, without needing failure labels |
+| AUROC | Threshold-free, robust to the class imbalance (≈ 20–40% failures) |
+| Stall heuristic as baseline | Half of the baseline failures are stalls (4.1), so any learned monitor must beat this trivial rule |
+
+## 4. Results
+
+### 4.1 RQ1: where do failures happen?
+
+π0.5 completes **470/500 episodes (94.0%, Wilson 95% CI 91.6–95.8)**.
+
+![stage outcome](fig1_where_failures.png)
+
+* **27 of 30 failures occur after the first sub-goal**; the other 3 (all T0)
+  never complete a sub-goal.
+* Failures concentrate in **T8 (37/50)**. In all 13 T8 failures the first pot is
+  placed at step ≈ 175–240 and the second is never placed, although successful
+  episodes need ≈ 200 further steps for it and ≈ 300 remain.
+
+Failure modes (`analysis/failure_modes.py`, heuristic and not mutually
+exclusive; the T8 stall was confirmed visually, see the GIF in the overview):
+
+| Mode | Criterion | Count (of 30) |
+|---|---|---|
+| Stall | end-effector moves < 15 cm in the last 150 steps | 16 |
+| Carried but not placed | target object lifted > 5 cm, sub-goal still false | 6 |
+| Repeated grasping | ≥ 5 gripper-close commands after the first sub-goal | 5 |
+| Regression | a completed sub-goal is undone (e.g. first pot knocked off the stove) | 4 |
+| No sub-goal | nothing completed | 3 |
+
+### 4.2 RQ2: recovery from a mid-episode perturbation
+
+Recovery rate = P(success | perturbed). Baseline = P(success | first sub-goal
+reached) without perturbation, on the same tasks.
+
+| Perturbation | Tasks | none | small | medium | large |
 |---|---|---|---|---|---|
-| Next target object shifted 3 / 6 / 10 cm | T0 T1 T2 T4 T6 T7 T8 | 92.8% [89.6, 95.1] | 91.1% [87.6, 93.6] | 83.4% [79.1, 87.0] | 63.1% [57.9, 68.1] |
-| Arm joint noise, std 0.03 / 0.06 / 0.10 rad | T3 T9 | 98.0% [93.0, 99.4] | 67.0% [57.2, 75.6] | 63.3% [53.4, 72.1] | 57.1% [47.3, 66.5] |
+| Object shift 3 / 6 / 10 cm | T0 T1 T2 T4 T6 T7 T8 | 92.8% [89.6, 95.1] | 91.1% [87.6, 93.6] | 83.4% [79.1, 87.0] | 63.1% [57.9, 68.1] |
+| Arm joint noise 0.03 / 0.06 / 0.10 rad | T3 T9 | 98.0% [93.0, 99.4] | 67.0% [57.2, 75.6] | 63.3% [53.4, 72.1] | 57.1% [47.3, 66.5] |
 
 ![recovery](../reports/perturbation/fig_recovery.png)
 
-* A 3 cm object shift is absorbed (no detectable drop); 6 cm and 10 cm are not.
-  Sensitivity is task-dependent: at 10 cm, T1/T7 (basket tasks) still succeed
-  ~86–88%, while T2 (moka pot onto stove) drops to 21/45 and T4 (mug onto plate)
-  to 28/50.
-* Even small arm perturbations during the drawer/microwave-closing phase cut
-  success from 98% to ~67%. The two perturbation kinds are in different units
-  and on different tasks, so they should not be compared directly.
+* 3 cm is absorbed; 6 and 10 cm are not. Sensitivity is task-dependent: at
+  10 cm the basket tasks T1 and T7 still succeed 43/49 and 43/50, while T2
+  (pot onto stove) falls to 21/45 and T4 (mug onto plate) to 28/50.
+* Small arm perturbations while closing a drawer or door already cost about
+  30 points. The two kinds differ in units and tasks and are not compared.
 
-### Part 2: can a small world model tell early whether the policy will recover?
+### 4.3 RQ3: early failure prediction with a world model
 
-**Model.** An action-conditioned dynamics model ("world model") predicts how the
-state changes over the next k = 10 steps (0.5 s) given the current state and the
-next 10 executed actions: Δs = f(s_t, a_t…a_{t+9}, task). The state is the
-end-effector position, gripper and arm joints, and the positions of the goal
-objects (privileged simulator state). It is a 2×256 MLP trained **only on
-successful, unperturbed** baseline episodes (init states 0–34; 333 episodes,
-40k samples); residual scales are calibrated on the remaining successful
-episodes. Held-out R² is 0.98 for both robot and object motion (a linear model
-reaches 0.83 / 0.57). See `vlalh/world_model.py`.
+Held-out prediction quality (R², calibration episodes): MLP 0.98 for both robot
+and object motion; linear model 0.83 (robot) and 0.57 (objects).
 
-**Monitor.** The score is the normalised prediction error (residual), averaged
-over predictions that are complete by the decision time – the same
-predict-observe-compare idea as residual-based anomaly detection with a Kalman
-filter. Perturbed episodes were never used for training.
+AUROC at **τ = 2 s after the perturbation**:
 
-**Question.** Given only what happened up to *t* seconds after the perturbation,
-does the episode end in failure? Compared against a stall heuristic (low
-end-effector motion) and the perturbation magnitude (an oracle that only
-exists in simulation).
-
-AUROC at **2 s after the perturbation** (95% bootstrap CI):
-
-| Setting | n (failures) | WM residual (MLP) | WM residual (linear) | Stall heuristic | Magnitude (oracle) |
+| Setting | n (failures) | WM, MLP | WM, linear | Stall heuristic | Magnitude (oracle) |
 |---|---|---|---|---|---|
-| Object shift (T0 T1 T2 T4 T6 T7 T8) | 1029 (214) | **0.74** [0.70, 0.78] | 0.70 [0.67, 0.74] | 0.62 [0.57, 0.66] | 0.69 [0.65, 0.73] |
-| Arm joint noise (T3 T9) | 293 (110) | **0.88** [0.84, 0.91] | 0.80 [0.75, 0.85] | 0.80 [0.74, 0.85] | 0.55 [0.48, 0.61] |
-| Unperturbed, 2 s after first sub-goal | 444 (26) | 0.70 [0.60, 0.79] | 0.69 [0.63, 0.75] | 0.57 [0.46, 0.69] | – |
+| Object shift | 1029 (214) | **0.74** [0.70, 0.78] | 0.70 [0.67, 0.74] | 0.62 [0.57, 0.66] | 0.69 [0.65, 0.73] |
+| Arm joint noise | 293 (110) | **0.88** [0.84, 0.91] | 0.80 [0.75, 0.85] | 0.80 [0.74, 0.85] | 0.55 [0.48, 0.61] |
+| Unperturbed, 2 s after the first sub-goal (held-out init 35–49 only) | 133 (11) | 0.56 [0.40, 0.73] | 0.65 [0.53, 0.76] | 0.46 [0.28, 0.65] | – |
 
 ![auroc vs time](../reports/part2/fig_auroc_vs_time.png)
+
+* In both perturbation settings the MLP world model is the best predictor at
+  1–2 s. For object shifts it is above the magnitude oracle (0.74 vs 0.69,
+  CIs overlap).
+* For *unperturbed* failures there are only 11 held-out cases and no predictor
+  is reliably above chance. (An earlier version of this table included
+  training episodes in this row and reported 0.70; that number was inflated.)
+* Its advantage is **earliness**: at 4 s the stall heuristic catches up for arm
+  perturbations (0.85 vs 0.87), when many failures have become visible stalls.
+* A learned non-linear model matters: the linear model is worse or tied.
+* It does not work everywhere: per-task AUROC is ≈ 0.6 on T6 and T8 (the task
+  with most failures). A high residual means "not evolving like a successful
+  episode", which also happens when the policy recovers through an unusual
+  regrasp.
+
 ![residual distribution](../reports/part2/fig_residual_distribution.png)
 
-* The world-model residual is the best (or tied-best) early predictor in every
-  setting at 1–2 s. For object shifts it scores higher than knowing the true
-  perturbation size (0.74 vs 0.69, CIs overlap), and it
-  still separates outcomes **within** each task × magnitude stratum
-  (AUROC 0.73 vs 0.59 for the stall heuristic), so it is not just recognising
-  the task or how hard the perturbation was.
-* The non-linear model matters: the linear dynamics model is worse or, at best, tied.
-* The advantage is **earliness**. By 4 s the stall heuristic catches up for arm
-  perturbations (0.85 vs 0.87), because many failures by then have turned into
-  visible stalls.
-* It does not work everywhere: within-task AUROC is only ~0.6 for T6 and T8, the
-  task with the most failures. A high residual means "not evolving like a
-  successful episode", which also happens when the policy recovers through an
-  unusual regrasp. Unperturbed failures are too few (26) for a firm conclusion.
+## 5. Validity checks
 
-All numbers: `../reports/part2/auroc.csv` (also within-task and within-magnitude
-AUROCs), per-episode scores in `../reports/part2/episode_scores_W40.csv`.
+| Check | Result |
+|---|---|
+| Does logging change the outcome? | Stock LeRobot and instrumented runs: 470/500 each. Per-task counts differ by ≤ 2 (T3, T7). |
+| Is a fixed seed reproducible? | No: π0.5 samples actions from noise. Stock re-runs of T3 gave 50/50 and 49/50 (48/50 instrumented). Hence all results are rates with CIs. |
+| Physics artefacts from teleporting objects | 14 of ≈ 1,340 perturbed episodes had a > 0.15 m jump in one step (solver instability) and were excluded (`reports/perturbation/excluded_unstable.csv`). |
+| Is the WM score just identifying the task or the perturbation size? | AUROC within each task × magnitude stratum: 0.73 (MLP) vs 0.59 (stall) for object shift; 0.87 vs 0.79 for arm noise. |
+| Train/test leakage | WM trained only on unperturbed successes (init 0–34). Perturbed episodes were never seen in training (they share initial scenes, not trajectories). The unperturbed evaluation uses only init 35–49. |
 
-### Caveats
+## 6. Limitations
 
-One seed; π0.5 samples actions from noise, so single episodes are not
-reproducible even with a fixed seed (stock LeRobot re-runs of T3 gave 50/50,
-49/50 and 48/50 instrumented), which is why everything above is reported as
-rates with Wilson CIs. A large object shift can make a task genuinely harder
-(object near an edge or obstacle), so the 10 cm condition mixes "cannot recover"
-with "task became harder".
+* One policy, one seed, simulation only.
+* Sub-goal progress and the world model use privileged simulator state
+  (predicates, exact object positions), which a real robot does not have.
+* At 10 cm, "cannot recover" is mixed with "task became harder" (object near an
+  edge or obstacle).
+* LIBERO-10 tasks have two (at most three) sub-goals, short compared to
+  industrial assembly sequences.
+* Detection only: whether acting on the warning improves success is untested.
+* No correction for multiple comparisons across the AUROC table.
 
-## Limitations
+## 7. Next steps
 
-* Simulation only; one policy checkpoint so far.
-* Sub-goal progress and the Part 2 world model use LIBERO's privileged simulator
-  state (predicates, object positions), which is not available on a real robot.
-  The natural next step is a world model on visual features (e.g. DINO / SigLIP
-  embeddings, as in DINO-WM) so the monitor uses only what the robot sees.
-* The monitor only detects; whether acting on it (re-planning, re-issuing the
-  sub-instruction) improves success is untested (Part 3).
-* LIBERO-10 tasks have at most 2–3 sub-goals; "long-horizon" here is short
-  compared to real assembly sequences.
+1. Visual world model: predict in image-feature space (e.g. DINO or SigLIP
+   embeddings, as in DINO-WM) so the monitor needs no privileged state.
+2. Close the loop: on a warning, re-issue the current sub-instruction or
+   re-plan, and measure recovered success against a random-trigger control.
+3. Harder long-horizon settings: more seeds, LIBERO-plus perturbations, longer
+   task chains, and a second policy (e.g. OpenVLA-OFT).
 
-## Related reading
+## 8. Reproduce
 
-* Black et al., π0 / π0.5 (Physical Intelligence)
-* Liu et al., LIBERO (2023), arXiv:2306.03310; *In-depth Robustness Analysis of Vision-Language-Action Models* (LIBERO-plus), arXiv:2510.13626
-* Hafner et al., DreamerV3, arXiv:2301.04104; Zhu et al., Unified World Models, arXiv:2504.02792
-* Dong et al., *Learning to Model the World: A Survey of World Models in AI* (2026, preprint)
-* M. Reuss, *State of VLA Research at ICLR 2026* (blog, 2025)
+```bash
+python scripts/inspect_tasks.py --suite libero_10           # sub-goals and their value at reset
+bash scripts/run_baseline.sh 1000 50                        # ~50 min on an RTX 5080
+bash scripts/run_perturb_sweep.sh 1000 50                   # ~2.5 h (3 magnitudes)
+
+python analysis/analyze_stages.py outputs/baseline_seed1000 --out reports/baseline
+python analysis/failure_modes.py  outputs/baseline_seed1000 --out reports/baseline
+python analysis/analyze_perturbation.py --baseline outputs/baseline_seed1000 \
+    --runs outputs/perturb_auto_mag0.0{3,6}_delay5_seed1000 outputs/perturb_auto_mag0.10_delay5_seed1000 \
+    --out reports/perturbation
+python analysis/part2_failure_monitor.py --baseline outputs/baseline_seed1000 \
+    --perturbed outputs/perturb_auto_mag0.0{3,6}_delay5_seed1000 outputs/perturb_auto_mag0.10_delay5_seed1000 \
+    --out reports/part2                                     # CPU, ~1 min
+python analysis/make_readme_figures.py
+python -m pytest tests -q                                   # offline tests, no simulator
+```
+
+Perturbations are configured with environment variables read by
+`vlalh/instrument.py`: `VLA_PERTURB_MODE` (`none` / `object` / `robot` / `auto`),
+`VLA_PERTURB_MAG`, `VLA_PERTURB_DELAY`, `VLA_PERTURB_SEED`. Per-episode logs:
+`outputs/<run>/summary.jsonl` and `outputs/<run>/episodes/taskXX_initYYY.npz`.
+
+## References
+
+* K. Black et al., π0: A Vision-Language-Action Flow Model for General Robot Control (2024); Physical Intelligence, π0.5 (2025)
+* B. Liu et al., LIBERO: Benchmarking Knowledge Transfer for Lifelong Robot Learning, arXiv:2306.03310
+* *In-depth Robustness Analysis of Vision-Language-Action Models* (LIBERO-plus), arXiv:2510.13626
+* D. Hafner et al., Mastering Diverse Domains through World Models (DreamerV3), arXiv:2301.04104
+* C. Zhu et al., Unified World Models, arXiv:2504.02792
+* J. Dong et al., Learning to Model the World: A Survey of World Models in Artificial Intelligence, Preprints 2026, doi:10.20944/preprints202603.0739.v1
+* M. Reuss, State of VLA Research at ICLR 2026 (blog, 2025)
+* LeRobot: https://github.com/huggingface/lerobot
