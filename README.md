@@ -1,98 +1,45 @@
-# When does a robot fail a multi-step task, and can we see it coming?
+# vla-long-horizon
 
-I tested **π0.5**, an open robot foundation model, on 10 multi-step household
-tasks in simulation. π0.5 is a
-*vision-language-action (VLA)* model: it looks at camera images, reads an
-instruction such as *"put both moka pots on the stove"*, and moves the arm.
+Where does a vision-language-action (VLA) policy fail on multi-step tasks, and can a small world model notice it early?
+
+I evaluated π0.5 (`lerobot/pi05_libero_finetuned`) on the 10 long-horizon tasks of LIBERO-10 in simulation. The model gets camera images and an instruction such as "put both moka pots on the stove" and outputs arm actions. I added logging so that every sub-goal of a task is checked at every step, not just the final success.
 
 <p align="center">
   <img src="docs/t8_success_vs_failure.gif" width="560" alt="Left: the robot puts both moka pots on the stove. Right: it places the first pot, then stays next to the second pot without grasping it until time runs out.">
 </p>
-<p align="center"><sub>Same task, same model, 2× speed. Right: the first pot is placed, then the arm hovers next to the second pot until time runs out.</sub></p>
-
-## In 30 seconds
-
-| | What I found |
-|---|---|
-| **1** | **9 out of 10 failures happen after the robot has already finished step 1.** Starting a task is easy; continuing it is where things go wrong. |
-| **2** | **If the object needed for step 2 is moved by 10 cm, the robot finishes only 63% of tasks** (93% without the disturbance). |
-| **3** | **A small world model, trained only on successful runs, gives an early warning 2 seconds after a disturbance.** It predicts failure better than a simple "the robot stopped moving" rule, though not perfectly. |
-
-## The idea
-
-```mermaid
-flowchart LR
-    I["Camera + instruction"] --> V["VLA policy (π0.5)<br/><i>decides what to do</i>"]
-    V -- actions --> R["Robot in the world"]
-    V -- same actions --> W["World model<br/><i>predicts what should happen</i>"]
-    R -- "what actually happened" --> C{"Compare"}
-    W -- "prediction" --> C
-    C -- "large mismatch" --> A["Early warning"]
-```
-
-A VLA only learned **what to do**, by copying human demonstrations. It never
-learned **what will happen** after it acts, so once something goes off-script it
-has no notion that it is failing. A *world model* adds exactly that: it predicts
-the next state from the current state and the planned actions. When reality
-stops matching the prediction, that mismatch is a warning signal.
+<p align="center"><sub>Same task, 2× speed. Right: the first pot is placed, then the arm stays next to the second pot until time runs out.</sub></p>
 
 ## Results
 
-### 1. Failures hide in the later steps
+**Baseline.** 470 of 500 episodes succeed (94%). 27 of the 30 failures happen after the first sub-goal is already done. Most of them are on "put both moka pots on the stove": in all 13 failures there, the first pot is placed and the robot then gets stuck at the second one.
 
 ![Where failures happen](docs/fig1_where_failures.png)
 
-An overall score of 94% looks solved. Logging every sub-goal shows that the
-remaining failures are concentrated in the second half of tasks, especially
-*"two moka pots → stove"*. In all 13 failures of that task the first pot was
-placed and the robot then got stuck on the second one, with time to spare.
-
-### 2. The robot struggles to recover from a mid-task disturbance
+**Disturbances.** I moved the object needed for the next step, or pushed the arm, right after the first sub-goal was reached. Small changes (3 cm) don't matter. Moving the object by 10 cm drops success from 93% to 63%. Pushing the arm while it closes a drawer or microwave door drops it from 98% to 57–67%.
 
 ![Disturbance](docs/fig2_disturbance.png)
 
-Small changes (3 cm) are absorbed. Larger ones are not. Bumping the arm while it
-closes a drawer or a microwave door drops success from 98% to 57–67%.
-
-### 3. A world model gives an earlier warning
+**Early warning.** I trained a small dynamics model (MLP) on successful runs only. It predicts the next state from the current state and the next actions. When the prediction error gets large, something is going wrong. Two seconds after a disturbance it separates failures from successes with AUROC 0.74 (object moved) and 0.88 (arm pushed). A simple "the robot stopped moving" rule gets 0.62 and 0.80.
 
 ![Early warning](docs/fig3_early_warning.png)
 
-The world model sees trouble coming sooner than a stall rule.
-It is not perfect: on the hardest task (two moka pots) it is only slightly
-better than chance, which is the obvious next thing to improve.
+It does not work everywhere. On the moka pot task it is close to chance (AUROC ≈ 0.6), and on the few natural failures without any disturbance (11 in the held-out runs) the result is unclear (AUROC 0.56, confidence interval 0.40 to 0.73).
 
-## Why this matters for real robots
+## Notes
 
-* **One success number is not enough.** Benchmarks such as LIBERO are close to
-  saturated; sub-goal-level evaluation shows *where* a policy breaks.
-* **Robustness after step 1 is the long-horizon problem.** Factory and household
-  tasks are chains of steps, and a small slip early on compounds later.
-* **A monitor needs no retraining of the robot model.** It could sit next to any
-  VLA as a pluggable safety layer and trigger a retry, a re-plan, or a stop
-  (not tested yet, see below).
+- My first evaluation of the unperturbed case reported AUROC 0.70. That number was wrong: some of the test episodes were also in the training set. After restricting the test set to unseen initial states, it dropped to 0.56.
+- Teleporting objects in MuJoCo sometimes makes the physics explode. 14 of about 1,340 perturbed episodes had an object jump more than 15 cm in one step, and I excluded them. My first filter also caught objects that were simply falling into a basket, so it now only looks at jumps after the perturbation.
+- The world model uses the exact object positions from the simulator. A real robot would have to estimate them from the cameras.
 
-## Honest limits
+## Limitations
 
-* Simulation only, one model, one random seed.
-* The world model uses the simulator's exact object positions. A real robot
-  would have to estimate them from cameras.
-* The monitor only *detects* problems; I have not yet tested acting on its warning.
+- Simulation only, one model, one random seed.
+- The monitor only detects problems. I have not tested acting on the warning, for example by retrying the current step.
 
-## What I would do next
+Next things I want to try: a world model on image features instead of simulator state, and actually retrying or re-planning when the warning fires to see how much success comes back.
 
-1. **Visual world model:** predict in image-feature space (e.g. DINO features),
-   so the monitor only uses what the robot sees.
-2. **Close the loop:** when the warning fires, retry the current sub-step or
-   re-plan, and measure how much success is recovered.
-3. **Longer and harder tasks:** more steps, perturbation benchmarks such as
-   LIBERO-plus, and eventually a real robot.
+## More
 
----
+Method, all numbers with confidence intervals, sanity checks and how to reproduce: [docs/TECHNICAL.md](docs/TECHNICAL.md).
 
-**Details:** [technical report](docs/TECHNICAL.md): method, all numbers with
-confidence intervals, sanity checks, how to reproduce.
-
-Built on [LeRobot](https://github.com/huggingface/lerobot),
-[LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) and the
-`lerobot/pi05_libero_finetuned` checkpoint. Author: Haoxiang Gao.
+Built on [LeRobot](https://github.com/huggingface/lerobot) and [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO).
