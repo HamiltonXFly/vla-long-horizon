@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Plain-language headline figures for the README (docs/fig*.png).
+"""README figures (docs/fig*.png).
 
 Run after analyze_stages.py, analyze_perturbation.py and part2_failure_monitor.py:
 
@@ -9,14 +9,15 @@ Run after analyze_stages.py, analyze_perturbation.py and part2_failure_monitor.p
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-DOCS = ROOT / "docs"
+ROOT = Path(os.environ.get("VLA_ROOT", Path(__file__).resolve().parents[1]))
+DOCS = Path(os.environ.get("VLA_DOCS", ROOT / "docs"))
 BLUE, ORANGE, ORANGE_LIGHT, GRAY = "#2a78d6", "#eb6834", "#f6b393", "#8a8a85"
 TEXT, TEXT2, GRID = "#1f1f1e", "#5f5e5a", "#e4e3df"
 TASK_NAMES = {
@@ -25,7 +26,7 @@ TASK_NAMES = {
     2: "stove on, moka pot on stove",
     3: "bowl → drawer, close drawer",
     4: "two mugs → two plates",
-    5: "book → caddy (1 step)",
+    5: "book → caddy",
     6: "mug → plate, pudding → right",
     7: "soup + cheese → basket",
     8: "two moka pots → stove",
@@ -36,12 +37,13 @@ TASK_NAMES = {
 def style(ax, grid_axis="x"):
     ax.spines[["top", "right"]].set_visible(False)
     ax.spines[["left", "bottom"]].set_color(GRID)
-    ax.tick_params(colors=TEXT2, labelsize=9)
+    ax.tick_params(colors=TEXT2, labelsize=9, length=0)
     getattr(ax, f"{grid_axis}axis").grid(True, color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
 
 
 def fig_where_failures():
+    """Failed episodes per task, split by whether step 1 had been completed."""
     rows = [json.loads(l) for l in (ROOT / "outputs/baseline_seed1000/summary.jsonl").read_text().splitlines()]
     df = pd.DataFrame(rows)
 
@@ -50,29 +52,22 @@ def fig_where_failures():
         return any(f is not None and not i for f, i in zip(r["first_true_step"], init))
 
     df["reached"] = df.apply(reached, axis=1)
-    g = df.groupby("task_id").agg(n=("success", "size"), ok=("success", "sum"),
-                                  fail_after=("reached", lambda s: 0)).reset_index()
-    g["fail_after"] = [int(((df.task_id == t) & ~df.success & df.reached).sum()) for t in g.task_id]
-    g["fail_before"] = g["n"] - g["ok"] - g["fail_after"]
-    g = g.iloc[::-1]  # T0 at the top
+    f = df[~df.success]
+    g = pd.DataFrame({"after": f[f.reached].groupby("task_id").size(),
+                      "before": f[~f.reached].groupby("task_id").size()}).fillna(0).astype(int)
+    g["total"] = g.after + g.before
+    g = g.sort_values("total")
     y = np.arange(len(g))
-    fig, ax = plt.subplots(figsize=(8.2, 4.4), dpi=170)
-    left = np.zeros(len(g))
-    for col, color, lab in [("ok", BLUE, "completed the whole task"),
-                            ("fail_after", ORANGE, "failed AFTER finishing step 1"),
-                            ("fail_before", ORANGE_LIGHT, "failed before finishing step 1")]:
-        v = g[col].to_numpy() / g["n"].to_numpy() * 100
-        ax.barh(y, v, left=left, color=color, edgecolor="white", linewidth=1.5, height=0.62, label=lab)
-        left += v
-    for yi, (_, r) in zip(y, g.iterrows()):
-        ax.text(101, yi, f"{r.ok}/{r.n}", va="center", fontsize=8, color=TEXT2)
-    ax.set_yticks(y, [TASK_NAMES[t] for t in g.task_id], fontsize=9, color=TEXT)
-    ax.set_xlim(0, 109)
-    ax.set_xticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
-    ax.set_title("27 of 30 failures happen after the robot has already finished step 1",
-                 fontsize=10.5, color=TEXT, loc="left", pad=22)
-    ax.legend(frameon=False, fontsize=8, ncol=3, loc="lower left", bbox_to_anchor=(0, 0.995),
-              labelcolor=TEXT2, handlelength=1.2)
+    fig, ax = plt.subplots(figsize=(6.6, 2.9), dpi=170)
+    ax.barh(y, g.after, color=ORANGE, height=0.6, edgecolor="white", linewidth=1.5, label="after step 1 was done")
+    ax.barh(y, g.before, left=g.after, color=ORANGE_LIGHT, height=0.6, edgecolor="white", linewidth=1.5,
+            label="before step 1")
+    for yi, t in zip(y, g.total):
+        ax.text(t + 0.25, yi, str(t), va="center", fontsize=9, color=TEXT)
+    ax.set_yticks(y, [TASK_NAMES[t] for t in g.index], fontsize=9, color=TEXT)
+    ax.set_xlabel("failed episodes (of 50 per task)", fontsize=9, color=TEXT2)
+    ax.set_xlim(0, g.total.max() + 1.5)
+    ax.legend(frameon=False, fontsize=8.5, loc="lower right", labelcolor=TEXT2, handlelength=1.2)
     style(ax)
     fig.tight_layout()
     fig.savefig(DOCS / "fig1_where_failures.png")
@@ -80,60 +75,58 @@ def fig_where_failures():
 
 
 def fig_disturbance():
+    """Success rate vs disturbance size, object shift and arm push side by side."""
     d = pd.read_csv(ROOT / "reports/perturbation/recovery.csv")
-    d = d[d.kind == "object_shift_xy"].sort_values("magnitude")
-    x = np.arange(len(d))
-    y = d.rate.to_numpy() * 100
-    err = np.vstack([y - d.ci_lo * 100, d.ci_hi * 100 - y])
-    fig, ax = plt.subplots(figsize=(6.4, 3.6), dpi=170)
-    colors = [GRAY] + [BLUE] * (len(d) - 1)
-    ax.bar(x, y, color=colors, width=0.6, edgecolor="white", linewidth=1.5)
-    ax.errorbar(x, y, yerr=err, fmt="none", ecolor=TEXT2, elinewidth=1, capsize=3)
-    for xi, yi in zip(x, y):
-        ax.text(xi, yi + 6, f"{yi:.0f}%", ha="center", fontsize=10, color=TEXT, fontweight="bold")
-    labels = ["not moved"] + [f"moved {m*100:.0f} cm" for m in d.magnitude[1:]]
-    ax.set_xticks(x, labels, fontsize=9, color=TEXT)
-    ax.set_ylim(0, 112)
-    ax.set_yticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
-    ax.set_ylabel("Task still completed", fontsize=9, color=TEXT)
-    ax.set_title("After step 1, we move the object needed for step 2", fontsize=10.5, color=TEXT, loc="left")
-    style(ax, "y")
+    panels = [("object_shift_xy", "Next object moved (7 tasks)", lambda m: "none" if m == 0 else f"{m * 100:.0f} cm"),
+              ("joint_noise", "Arm pushed (2 tasks)", lambda m: "none" if m == 0 else f"{m:.2f} rad")]
+    fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.0), dpi=170, sharey=True)
+    for ax, (kind, title, fmt) in zip(axes, panels):
+        s = d[d.kind == kind].sort_values("magnitude")
+        x = np.arange(len(s))
+        yv = s.rate.to_numpy() * 100
+        ax.fill_between(x, s.ci_lo * 100, s.ci_hi * 100, color=BLUE, alpha=0.15, linewidth=0)
+        ax.plot(x, yv, color=BLUE, linewidth=2, marker="o", markersize=7, markeredgecolor="white",
+                markeredgewidth=1.5)
+        for xi, yi in zip(x, yv):
+            ax.text(xi, yi + 5, f"{yi:.0f}%", ha="center", fontsize=9, color=TEXT)
+        ax.set_xticks(x, [fmt(m) for m in s.magnitude], fontsize=9, color=TEXT)
+        ax.set_xlim(-0.4, len(s) - 0.6)
+        ax.set_title(title, fontsize=10, color=TEXT, loc="left")
+        style(ax, "y")
+    axes[0].set_ylim(0, 108)
+    axes[0].set_yticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
+    axes[0].set_ylabel("tasks completed", fontsize=9, color=TEXT2)
     fig.tight_layout()
     fig.savefig(DOCS / "fig2_disturbance.png")
     plt.close(fig)
 
 
 def fig_early_warning():
+    """AUROC 2 s after the disturbance: world model vs stall rule."""
     d = pd.read_csv(ROOT / "reports/part2/auroc.csv")
     d = d[d.decision_steps_after == 40]
-    groups = [("object_shift_xy", "Object moved\n(7 tasks)"), ("joint_noise", "Robot arm bumped\n(2 tasks)")]
-    preds = [("WM residual (MLP)", "World model", BLUE),
-             ("Stall heuristic", "Rule: \"robot stopped moving\"", ORANGE),
-             ("Magnitude (sim oracle)", "Knowing how big the disturbance was*", GRAY)]
-    fig, ax = plt.subplots(figsize=(7.2, 3.8), dpi=170)
-    w = 0.26
+    groups = [("object_shift_xy", "next object moved"), ("joint_noise", "arm pushed")]
+    preds = [("WM residual (MLP)", "world model", BLUE), ("Stall heuristic", "\"robot stopped moving\" rule", ORANGE)]
+    fig, ax = plt.subplots(figsize=(6.2, 2.5), dpi=170)
+    y = np.arange(len(groups))[::-1]
     for j, (key, lab, color) in enumerate(preds):
-        for i, (kind, _) in enumerate(groups):
+        for yi, (kind, _) in zip(y, groups):
             r = d[(d.kind == kind) & (d.predictor == key)].iloc[0]
-            xi = i + (j - 1) * w
-            ax.errorbar(xi, r.auroc, yerr=[[r.auroc - r.ci_lo], [r.ci_hi - r.auroc]], fmt="none",
-                        ecolor=color, elinewidth=2, capsize=0)
-            ax.plot(xi, r.auroc, "o", color=color, markersize=11, markeredgecolor="white", markeredgewidth=2,
-                    label=lab if i == 0 else None)
-            ax.text(xi + 0.045, r.auroc, f"{r.auroc:.2f}", ha="left", va="center", fontsize=9, color=TEXT)
-    ax.axhline(0.5, color=TEXT2, linewidth=1, linestyle=(0, (3, 3)))
-    ax.text(-0.45, 0.507, "coin flip", fontsize=8, color=TEXT2, ha="left", va="bottom")
-    ax.set_xticks(range(len(groups)), [g[1] for g in groups], fontsize=9, color=TEXT)
-    ax.set_xlim(-0.5, 1.6)
-    ax.set_ylim(0.4, 1.0)
-    ax.set_ylabel("How well it predicts failure\n(AUROC: 0.5 = guessing, 1 = perfect)", fontsize=8.5, color=TEXT)
-    ax.set_title("2 seconds after a disturbance: who can tell the robot will fail?", fontsize=10.5,
-                 color=TEXT, loc="left", pad=28)
-    ax.legend(frameon=False, fontsize=8, ncol=3, loc="lower left", bbox_to_anchor=(0, 0.99), labelcolor=TEXT2,
-              handlelength=1.2)
-    style(ax, "y")
-    fig.text(0.01, 0.01, "* only known in simulation", fontsize=7.5, color=TEXT2)
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+            yy = yi + (0.14 if j == 0 else -0.14)
+            ax.plot([r.ci_lo, r.ci_hi], [yy, yy], color=color, linewidth=2.5, solid_capstyle="round", alpha=0.45)
+            ax.plot(r.auroc, yy, "o", color=color, markersize=9, markeredgecolor="white", markeredgewidth=1.5,
+                    label=lab if yi == y[0] else None)
+            ax.text(r.ci_hi + 0.012, yy, f"{r.auroc:.2f}", va="center", fontsize=9, color=TEXT)
+    ax.axvline(0.5, color=TEXT2, linewidth=1, linestyle=(0, (3, 3)))
+    ax.text(0.505, y[-1] - 0.45, "guessing", fontsize=8, color=TEXT2, va="bottom")
+    ax.set_yticks(y, [g[1] for g in groups], fontsize=9.5, color=TEXT)
+    ax.set_xlim(0.45, 1.0)
+    ax.set_ylim(y[-1] - 0.5, y[0] + 0.5)
+    ax.set_xlabel("AUROC for predicting failure, 2 s after the disturbance (1 = perfect)", fontsize=9, color=TEXT2)
+    ax.legend(frameon=False, fontsize=8.5, loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, labelcolor=TEXT2,
+              handlelength=1.0)
+    style(ax)
+    fig.tight_layout()
     fig.savefig(DOCS / "fig3_early_warning.png")
     plt.close(fig)
 
