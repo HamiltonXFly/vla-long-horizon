@@ -1,0 +1,62 @@
+{
+ "success": {
+  "run": "outputs/baseline_seed1000",
+  "task_id": 8,
+  "init_state_id": 0,
+  "max_dev_mm": 0.0
+ },
+ "stall": {
+  "run": "outputs/baseline_seed1000",
+  "task_id": 8,
+  "init_state_id": 3,
+  "max_dev_mm": 0.0
+ },
+ "carried_not_placed": {
+  "run": "outputs/baseline_seed1000",
+  "task_id": 8,
+  "init_state_id": 39,
+  "max_dev_mm": 0.0
+ },
+ "repeated_grasp": {
+  "run": "outputs/baseline_seed1000",
+  "task_id": 8,
+  "init_state_id": 47,
+  "max_dev_mm": 0.0
+ },
+ "regression": {
+  "run": "outputs/baseline_seed1000",
+  "task_id": 8,
+  "init_state_id": 27,
+  "max_dev_mm": 2.909
+ },
+ "no_subgoal": {
+  "run": "outputs/baseline_seed1000",
+  "task_id": 0,
+  "init_state_id": 49,
+  "max_dev_mm": 0.0
+ },
+ "object_shift_recovered": {
+  "run": "outputs/perturb_auto_mag0.10_delay5_seed1000",
+  "task_id": 0,
+  "init_state_id": 0,
+  "max_dev_mm": 0.0
+ },
+ "object_shift_failed": {
+  "run": "outputs/perturb_auto_mag0.10_delay5_seed1000",
+  "task_id": 0,
+  "init_state_id": 3,
+  "max_dev_mm": 0.0
+ },
+ "arm_push_recovered": {
+  "run": "outputs/perturb_auto_mag0.10_delay5_seed1000",
+  "task_id": 9,
+  "init_state_id": 0,
+  "max_dev_mm": 0.0
+ },
+ "arm_push_failed": {
+  "run": "outputs/perturb_auto_mag0.10_delay5_seed1000",
+  "task_id": 9,
+  "init_state_id": 2,
+  "max_dev_mm": 9.1
+ }
+}
